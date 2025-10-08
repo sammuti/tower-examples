@@ -17,7 +17,7 @@ default = ""
 [[parameters]]
 name = "model_to_use"
 description = "Name and version of the model to use for analysis. E.g. deepseek-r1:14b when using ollama or deepseek-ai/DeepSeek-R1 when using Together.ai"
-default = "deepseek-ai/DeepSeek-R1"
+default = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 
 [[parameters]]
 name = "max_tokens"
