@@ -2,12 +2,6 @@
 name = "db-analyst"
 script = "./app.py"
 
-source = [
-	"./.dlt/config.toml",
-	"./pyproject.toml",
-    "./app.py"
-]
-
 [[parameters]]
 name = "user_question"
 description = "Natural language question about the database that you want answered"

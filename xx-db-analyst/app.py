@@ -1,9 +1,11 @@
 import os
 import json
 from typing import List, Dict, Any
-import tower
 import psycopg2
 from psycopg2.extras import RealDictCursor
+
+# TODO: Replace with `import tower` once the CLI PR is merged
+from _llms import llms
 
 
 def get_database_connection():
@@ -20,9 +22,57 @@ def get_database_connection():
     return psycopg2.connect(postgres_uri)
 
 
+def is_read_only_query(query: str) -> bool:
+    """
+    Check if a SQL query is read-only (SELECT only).
+
+    Args:
+        query (str): SQL query to check
+
+    Returns:
+        bool: True if query is read-only, False otherwise
+    """
+    # Remove leading/trailing whitespace and convert to uppercase
+    query_upper = query.strip().upper()
+
+    # Remove comments
+    lines = []
+    for line in query_upper.split('\n'):
+        # Remove single-line comments
+        if '--' in line:
+            line = line[:line.index('--')]
+        lines.append(line)
+    query_upper = ' '.join(lines)
+
+    # Remove multi-line comments
+    while '/*' in query_upper and '*/' in query_upper:
+        start = query_upper.index('/*')
+        end = query_upper.index('*/', start) + 2
+        query_upper = query_upper[:start] + ' ' + query_upper[end:]
+
+    # Check for dangerous keywords
+    dangerous_keywords = [
+        'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
+        'TRUNCATE', 'REPLACE', 'MERGE', 'GRANT', 'REVOKE',
+        'EXECUTE', 'EXEC', 'CALL'
+    ]
+
+    for keyword in dangerous_keywords:
+        # Check if keyword appears as a standalone word (not part of column/table name)
+        if f' {keyword} ' in f' {query_upper} ' or query_upper.startswith(f'{keyword} '):
+            return False
+
+    # Must start with SELECT, WITH (for CTEs), or SHOW/EXPLAIN/DESCRIBE
+    safe_starts = ['SELECT', 'WITH', 'SHOW', 'EXPLAIN', 'DESCRIBE', 'DESC']
+    starts_safe = any(query_upper.startswith(keyword) for keyword in safe_starts)
+
+    return starts_safe
+
+
 def execute_sql_query(query: str) -> Dict[str, Any]:
     """
     Execute a SQL query against the connected PostgreSQL database.
+    Only read-only queries (SELECT, WITH, SHOW, EXPLAIN, DESCRIBE) are allowed.
 
     Args:
         query (str): SQL query to execute
@@ -31,6 +81,16 @@ def execute_sql_query(query: str) -> Dict[str, Any]:
         dict: Query results with columns, rows, and row count
     """
     try:
+        # Validate query is read-only
+        if not is_read_only_query(query):
+            error_msg = "Only read-only queries (SELECT, WITH, SHOW, EXPLAIN, DESCRIBE) are allowed. Detected potentially dangerous operations."
+            print(f"ERROR: {error_msg}\n")
+            return {
+                "success": False,
+                "error": error_msg,
+                "query": query
+            }
+
         print(f"\n{'='*80}")
         print(f"Executing query:\n{query}")
         print(f"{'='*80}\n")
@@ -211,7 +271,8 @@ Always explain your reasoning and the queries you're running."""
     print(f"\nUser Question: {user_question}\n")
 
     # Get LLM instance
-    llm = tower.llms(model_to_use)
+    # TODO: Replace with `tower.llms()` once the CLI PR is merged
+    llm = llms(model_to_use, max_tokens=max_tokens)
     tools = get_tool_definitions()
 
     # Track queries executed
@@ -232,20 +293,49 @@ Always explain your reasoning and the queries you're running."""
             max_tokens=max_tokens
         )
 
+        # Check if response is a ChatCompletionOutput (HuggingFace) or ChatResponse (Ollama)
+        # Both have different structures for tool_calls
+        has_tool_calls = False
+        tool_calls_list = []
+        assistant_content = None
+
+        if hasattr(response, 'choices'):
+            # HuggingFace response
+            message = response.choices[0].message
+            if message.tool_calls:
+                has_tool_calls = True
+                # Convert HF tool calls to standard format
+                for tc in message.tool_calls:
+                    tool_calls_list.append({
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    })
+            assistant_content = message.content
+        elif hasattr(response, 'message'):
+            # Ollama response
+            if hasattr(response.message, 'tool_calls') and response.message.tool_calls:
+                has_tool_calls = True
+                tool_calls_list = response.message.tool_calls
+            assistant_content = response.message.content
+
         # Check if LLM wants to use tools
-        if hasattr(response, 'tool_calls') and response.tool_calls:
+        if has_tool_calls:
             # Add assistant message with tool calls to conversation
             messages.append({
                 "role": "assistant",
-                "content": response.content or "",
-                "tool_calls": response.tool_calls
+                "content": assistant_content or "",
+                "tool_calls": tool_calls_list
             })
 
             # Process tool calls
-            tool_results = process_tool_calls(response.tool_calls)
+            tool_results = process_tool_calls(tool_calls_list)
 
             # Track queries
-            for tool_call in response.tool_calls:
+            for tool_call in tool_calls_list:
                 if tool_call["function"]["name"] == "execute_sql_query":
                     args = json.loads(tool_call["function"]["arguments"])
                     queries_executed.append(args["query"])
@@ -255,14 +345,26 @@ Always explain your reasoning and the queries you're running."""
 
         else:
             # No more tool calls - LLM has final answer
+            # Extract the actual text content from the response
+            final_answer = None
+            if hasattr(response, 'choices'):
+                # HuggingFace response
+                final_answer = response.choices[0].message.content
+            elif hasattr(response, 'message'):
+                # Ollama response
+                final_answer = response.message.content
+            elif isinstance(response, str):
+                # Simple string response (backward compatibility)
+                final_answer = response
+
             print("\n" + "="*80)
             print("ANALYSIS AND ANSWER")
             print("="*80)
-            print(response)
+            print(final_answer)
             print("="*80)
 
             # Print summary
-            print_summary(user_question, str(response), queries_executed)
+            print_summary(user_question, final_answer, queries_executed)
 
             break
 
