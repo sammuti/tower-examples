@@ -9,5 +9,6 @@ dependencies = [
     "transformers",
     "huggingface-hub>=0.34.3",
     "tower>=0.3.24",
-    "psycopg2-binary"
+    "psycopg2-binary",
+    "slack-sdk"
 ]

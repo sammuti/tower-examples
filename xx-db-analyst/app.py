@@ -1,8 +1,10 @@
 import os
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 # TODO: Replace with `import tower` once the CLI PR is merged
 from _llms import llms
@@ -215,6 +217,92 @@ def process_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return results
 
 
+def post_to_slack(
+    channel: str,
+    question: str,
+    analysis: str,
+    queries_executed: List[str],
+    thread_ts: Optional[str] = None
+) -> Optional[str]:
+    """
+    Post analysis results to Slack channel.
+
+    Args:
+        channel (str): Slack channel ID
+        question (str): The user's original question
+        analysis (str): The LLM's analysis and answer
+        queries_executed (list): List of SQL queries that were executed
+        thread_ts (str, optional): Thread timestamp to reply to
+
+    Returns:
+        str: Thread timestamp of the posted message
+    """
+    slack_token = os.getenv("DB_ANALYST_SLACK_BOT_TOKEN")
+    if not slack_token:
+        print("⚠️  DB_ANALYST_SLACK_BOT_TOKEN not set, skipping Slack posting")
+        return None
+
+    try:
+        client = WebClient(token=slack_token)
+
+        # Build message blocks for rich formatting
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "📊 Database Analysis Complete",
+                    "emoji": True
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Question:*\n{question}"
+                    }
+                ]
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Answer:*\n{analysis}"
+                }
+            }
+        ]
+
+        # Add queries if any were executed
+        if queries_executed:
+            queries_text = "\n".join([f"• `{q[:100]}{'...' if len(q) > 100 else ''}`" for q in queries_executed])
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Queries Executed ({len(queries_executed)}):*\n{queries_text}"
+                }
+            })
+
+        # Post message
+        response = client.chat_postMessage(
+            channel=channel,
+            blocks=blocks,
+            text=f"Analysis: {question}",  # Fallback text for notifications
+            thread_ts=thread_ts
+        )
+
+        print(f"✅ Posted to Slack channel {channel}")
+        return response["ts"]
+
+    except SlackApiError as e:
+        print(f"❌ Error posting to Slack: {e.response['error']}")
+        return None
+
+
 def print_summary(question: str, analysis: str, queries_executed: List[str]):
     """
     Print a summary of the analysis in a console-friendly format.
@@ -243,6 +331,8 @@ def main():
     max_tokens = int(max_tokens_str) if max_tokens_str and max_tokens_str.strip() else 2000
     max_iterations_str = os.getenv("max_iterations")
     max_iterations = int(max_iterations_str) if max_iterations_str and max_iterations_str.strip() else 10
+    slack_channel = os.getenv("slack_channel", "")
+    slack_thread_ts = os.getenv("slack_thread_ts", "")
 
     # Build system prompt with schema context
     system_prompt = """You are a helpful database analyst assistant. Your role is to help users understand and query their PostgreSQL database.
@@ -366,6 +456,19 @@ Always explain your reasoning and the queries you're running."""
 
             # Print summary
             print_summary(user_question, final_answer, queries_executed)
+
+            # Post to Slack if configured
+            if slack_channel:
+                thread_ts = post_to_slack(
+                    channel=slack_channel,
+                    question=user_question,
+                    analysis=final_answer,
+                    queries_executed=queries_executed,
+                    thread_ts=slack_thread_ts if slack_thread_ts else None
+                )
+                if thread_ts:
+                    print(f"\n💬 Slack thread_ts: {thread_ts}")
+                    print("   Use this to continue the conversation!")
 
             break
 

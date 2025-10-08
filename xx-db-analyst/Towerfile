@@ -26,3 +26,13 @@ default = "2000"
 name = "max_iterations"
 description = "Maximum number of agent iterations for tool calling loop"
 default = "10"
+
+[[parameters]]
+name = "slack_channel"
+description = "Slack channel ID to post results to (e.g., C01234567). Leave empty to disable Slack integration."
+default = ""
+
+[[parameters]]
+name = "slack_thread_ts"
+description = "Slack thread timestamp to reply to. Leave empty to start new thread."
+default = ""
