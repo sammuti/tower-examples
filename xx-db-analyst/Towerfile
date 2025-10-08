@@ -2,10 +2,12 @@
 name = "db-analyst"
 script = "./app.py"
 
+schedule = '0 */2 * * * *'
+
 [[parameters]]
 name = "user_question"
-description = "Natural language question about the database that you want answered"
-default = "What tables exist in the database and how many rows does each have?"
+description = "Natural language question about the database that you want answered. Leave empty to check Slack inbox for @mentions (inbox mode)."
+default = ""
 
 [[parameters]]
 name = "schema_context"
@@ -36,3 +38,4 @@ default = ""
 name = "slack_thread_ts"
 description = "Slack thread timestamp to reply to. Leave empty to start new thread."
 default = ""
+

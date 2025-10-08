@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -322,17 +323,27 @@ def print_summary(question: str, analysis: str, queries_executed: List[str]):
     print("\n" + "="*80)
 
 
-def main():
-    # Get parameters from environment
-    user_question = os.getenv("user_question")
-    schema_context = os.getenv("schema_context", "")
-    model_to_use = os.getenv("model_to_use")
-    max_tokens_str = os.getenv("max_tokens")
-    max_tokens = int(max_tokens_str) if max_tokens_str and max_tokens_str.strip() else 2000
-    max_iterations_str = os.getenv("max_iterations")
-    max_iterations = int(max_iterations_str) if max_iterations_str and max_iterations_str.strip() else 10
-    slack_channel = os.getenv("slack_channel", "")
-    slack_thread_ts = os.getenv("slack_thread_ts", "")
+def analyze_question(
+    user_question: str,
+    schema_context: str,
+    model_to_use: str,
+    max_tokens: int,
+    max_iterations: int,
+    slack_channel: str = "",
+    slack_thread_ts: str = ""
+):
+    """
+    Analyze a single question and optionally post to Slack.
+
+    Args:
+        user_question: The question to analyze
+        schema_context: Optional schema context
+        model_to_use: Model name
+        max_tokens: Max tokens for LLM
+        max_iterations: Max tool calling iterations
+        slack_channel: Slack channel to post to (optional)
+        slack_thread_ts: Slack thread to reply to (optional)
+    """
 
     # Build system prompt with schema context
     system_prompt = """You are a helpful database analyst assistant. Your role is to help users understand and query their PostgreSQL database.
@@ -474,6 +485,159 @@ Always explain your reasoning and the queries you're running."""
 
     if iteration >= max_iterations:
         print("\nReached maximum iterations without final answer")
+
+
+def check_slack_inbox(schema_context: str, model_to_use: str, max_tokens: int, max_iterations: int):
+    """
+    Check Slack for @mentions and respond to them.
+    This is designed to be run on a schedule (e.g., every 1 minute).
+    """
+    slack_token = os.getenv("DB_ANALYST_SLACK_BOT_TOKEN")
+    if not slack_token:
+        print("⚠️  DB_ANALYST_SLACK_BOT_TOKEN not set, cannot check Slack inbox")
+        return
+
+    try:
+        client = WebClient(token=slack_token)
+
+        # Get bot user ID
+        auth_response = client.auth_test()
+        bot_user_id = auth_response["user_id"]
+        print(f"🤖 Bot user ID: {bot_user_id}")
+
+        # Get channels the bot is in
+        channels_response = client.conversations_list(
+            types="public_channel,private_channel",
+            exclude_archived=True
+        )
+
+        bot_channels = [ch for ch in channels_response["channels"] if ch.get("is_member")]
+        print(f"📢 Monitoring {len(bot_channels)} channel(s)")
+
+        # Check for mentions in last 2 minutes (to avoid missing messages between runs)
+        two_minutes_ago = time.time() - 120
+        processed_count = 0
+
+        for channel in bot_channels:
+            channel_id = channel["id"]
+            channel_name = channel["name"]
+
+            # Get recent messages
+            history = client.conversations_history(
+                channel=channel_id,
+                oldest=str(two_minutes_ago),
+                limit=100
+            )
+
+            for message in history.get("messages", []):
+                # Skip bot's own messages
+                if message.get("user") == bot_user_id:
+                    continue
+
+                # Check if bot is mentioned
+                text = message.get("text", "")
+                if f"<@{bot_user_id}>" not in text:
+                    continue
+
+                # Extract question (remove bot mention)
+                question = text.replace(f"<@{bot_user_id}>", "").strip()
+                if not question:
+                    continue
+
+                thread_ts = message.get("thread_ts") or message["ts"]
+
+                print(f"\n{'='*80}")
+                print(f"📬 New mention in #{channel_name}")
+                print(f"   Question: {question}")
+                print(f"   Thread: {thread_ts}")
+                print(f"{'='*80}")
+
+                # Post "thinking" reaction
+                try:
+                    client.reactions_add(
+                        channel=channel_id,
+                        timestamp=message["ts"],
+                        name="hourglass_flowing_sand"
+                    )
+                except:
+                    pass
+
+                # Analyze the question
+                analyze_question(
+                    user_question=question,
+                    schema_context=schema_context,
+                    model_to_use=model_to_use,
+                    max_tokens=max_tokens,
+                    max_iterations=max_iterations,
+                    slack_channel=channel_id,
+                    slack_thread_ts=thread_ts
+                )
+
+                # Remove "thinking" reaction and add "check"
+                try:
+                    client.reactions_remove(
+                        channel=channel_id,
+                        timestamp=message["ts"],
+                        name="hourglass_flowing_sand"
+                    )
+                    client.reactions_add(
+                        channel=channel_id,
+                        timestamp=message["ts"],
+                        name="white_check_mark"
+                    )
+                except:
+                    pass
+
+                processed_count += 1
+
+        if processed_count == 0:
+            print("📭 No new mentions found")
+        else:
+            print(f"\n✅ Processed {processed_count} mention(s)")
+
+    except SlackApiError as e:
+        print(f"❌ Error checking Slack: {e.response['error']}")
+        if e.response.get('needed'):
+            print(f"   Missing scope: {e.response['needed']}")
+        if e.response.get('provided'):
+            print(f"   Current scopes: {e.response['provided']}")
+        print(f"   Full error: {e.response}")
+
+
+def main():
+    # Get parameters from environment
+    user_question = os.getenv("user_question", "").strip()
+    schema_context = os.getenv("schema_context", "")
+    model_to_use = os.getenv("model_to_use")
+    max_tokens_str = os.getenv("max_tokens")
+    max_tokens = int(max_tokens_str) if max_tokens_str and max_tokens_str.strip() else 2000
+    max_iterations_str = os.getenv("max_iterations")
+    max_iterations = int(max_iterations_str) if max_iterations_str and max_iterations_str.strip() else 10
+    slack_channel = os.getenv("slack_channel", "")
+    slack_thread_ts = os.getenv("slack_thread_ts", "")
+
+    # Determine mode based on whether user_question is provided
+    if user_question:
+        # One-shot mode: analyze the provided question
+        print("🎯 Running in ONE-SHOT mode")
+        analyze_question(
+            user_question=user_question,
+            schema_context=schema_context,
+            model_to_use=model_to_use,
+            max_tokens=max_tokens,
+            max_iterations=max_iterations,
+            slack_channel=slack_channel,
+            slack_thread_ts=slack_thread_ts
+        )
+    else:
+        # Inbox mode: check Slack for @mentions
+        print("📬 Running in INBOX mode")
+        check_slack_inbox(
+            schema_context=schema_context,
+            model_to_use=model_to_use,
+            max_tokens=max_tokens,
+            max_iterations=max_iterations
+        )
 
 
 if __name__ == "__main__":

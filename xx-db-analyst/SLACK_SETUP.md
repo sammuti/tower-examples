@@ -12,6 +12,8 @@ This guide shows you how to set up interactive database analysis via Slack!
    - `chat:write` - Post messages
    - `channels:history` - Read channel messages
    - `channels:read` - View channels
+   - `reactions:write` - Add reactions to messages
+   - `reactions:read` - Read reactions
 6. Click **"Install to Workspace"** at the top
 7. Copy the **"Bot User OAuth Token"** (starts with `xoxb-`)
 8. Save it as a Tower secret:
