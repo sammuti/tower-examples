@@ -2,6 +2,8 @@ import os
 import json
 import time
 from typing import List, Dict, Any, Optional
+from datetime import datetime, date
+from decimal import Decimal
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from slack_sdk import WebClient
@@ -110,8 +112,20 @@ def execute_sql_query(query: str) -> Dict[str, Any]:
             rows = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
 
-            # Convert rows to list of dicts for JSON serialization
-            rows_as_dicts = [dict(row) for row in rows]
+            # Convert rows to list of dicts and handle non-JSON-serializable types
+            rows_as_dicts = []
+            for row in rows:
+                row_dict = {}
+                for key, value in dict(row).items():
+                    # Convert datetime/date to ISO format string
+                    if isinstance(value, (datetime, date)):
+                        row_dict[key] = value.isoformat()
+                    # Convert Decimal to float
+                    elif isinstance(value, Decimal):
+                        row_dict[key] = float(value)
+                    else:
+                        row_dict[key] = value
+                rows_as_dicts.append(row_dict)
 
             result = {
                 "success": True,
