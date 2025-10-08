@@ -1,0 +1,13 @@
+[project]
+name = "xx-db-analyst"
+version = "0.1.0"
+description = "AI-powered database analyst using LLM tool calling to query and analyze PostgreSQL databases"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ollama",
+    "transformers",
+    "huggingface-hub>=0.34.3",
+    "tower>=0.3.24",
+    "psycopg2-binary"
+]

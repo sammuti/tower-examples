@@ -1,0 +1,29 @@
+[app]
+name = "db-analyst"
+script = "./app.py"
+
+source = [
+	"./.dlt/config.toml",
+	"./pyproject.toml",
+    "./app.py"
+]
+
+[[parameters]]
+name = "user_question"
+description = "Natural language question about the database that you want answered"
+default = "What tables exist in the database and how many rows does each have?"
+
+[[parameters]]
+name = "schema_context"
+description = "Optional schema context to help the LLM understand the database structure (table names, column descriptions, relationships, etc.)"
+default = ""
+
+[[parameters]]
+name = "model_to_use"
+description = "Name and version of the model to use for analysis. E.g. deepseek-r1:14b when using ollama or deepseek-ai/DeepSeek-R1 when using Together.ai"
+default = "deepseek-ai/DeepSeek-R1"
+
+[[parameters]]
+name = "max_tokens"
+description = "The maximum length of output, measured in tokens"
+default = "2000"
