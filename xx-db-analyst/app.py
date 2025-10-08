@@ -241,6 +241,8 @@ def main():
     model_to_use = os.getenv("model_to_use")
     max_tokens_str = os.getenv("max_tokens")
     max_tokens = int(max_tokens_str) if max_tokens_str and max_tokens_str.strip() else 2000
+    max_iterations_str = os.getenv("max_iterations")
+    max_iterations = int(max_iterations_str) if max_iterations_str and max_iterations_str.strip() else 10
 
     # Build system prompt with schema context
     system_prompt = """You are a helpful database analyst assistant. Your role is to help users understand and query their PostgreSQL database.
@@ -279,7 +281,6 @@ Always explain your reasoning and the queries you're running."""
     queries_executed = []
 
     # Agent loop - allow LLM to use tools iteratively
-    max_iterations = 10
     iteration = 0
 
     while iteration < max_iterations:

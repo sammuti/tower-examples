@@ -21,3 +21,8 @@ default = "deepseek-ai/DeepSeek-R1"
 name = "max_tokens"
 description = "The maximum length of output, measured in tokens"
 default = "2000"
+
+[[parameters]]
+name = "max_iterations"
+description = "Maximum number of agent iterations for tool calling loop"
+default = "10"
