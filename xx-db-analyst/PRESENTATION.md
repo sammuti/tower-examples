@@ -31,10 +31,10 @@ Engineer: "Why did user signups drop yesterday?"
 
 ```mermaid
 graph LR
-    A[👤 User in Slack] -->|@db-analyst What tables exist?| B[🤖 AI Agent]
-    B -->|1. Plans queries| C[🧠 Qwen3 LLM]
-    C -->|2. Generates SQL| D[✅ Read-only validation]
-    D -->|3. Executes| E[🗄️ PostgreSQL]
+    A[User in Slack] -->|@db-analyst What tables exist?| B[AI Agent]
+    B -->|1. Plans queries| C[Qwen3 LLM]
+    C -->|2. Generates SQL| D[Read-only validation]
+    D -->|3. Executes| E[PostgreSQL]
     E -->|4. Returns data| B
     B -->|5. Analyzes & responds| A
 ```
