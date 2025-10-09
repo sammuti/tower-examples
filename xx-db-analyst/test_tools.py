@@ -2,9 +2,13 @@ import os
 import json
 
 # Set up environment variables
-os.environ["TOWER_INFERENCE_ROUTER"] = "hugging_face_hub"
-os.environ["TOWER_INFERENCE_ROUTER_API_KEY"] = "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"
-os.environ["TOWER_INFERENCE_PROVIDER"] = "together"
+# Make sure to set these before running:
+# export TOWER_INFERENCE_ROUTER=hugging_face_hub
+# export TOWER_INFERENCE_ROUTER_API_KEY=your_key_here
+# export TOWER_INFERENCE_PROVIDER=together
+
+if not os.getenv("TOWER_INFERENCE_ROUTER_API_KEY"):
+    raise ValueError("Please set TOWER_INFERENCE_ROUTER_API_KEY environment variable")
 
 import tower
 
